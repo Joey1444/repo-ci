@@ -1,0 +1,40 @@
+name: Repo check (reusable)
+
+# 通用仓库检查 —— 供其它仓库通过 `uses:` 调用，不必各自复制脚本。
+# 调用方（放在目标仓库 .github/workflows/ci.yml）：
+#
+#   name: CI
+#   on: [push, pull_request]
+#   jobs:
+#     check:
+#       uses: Joey1444/repo-ci/.github/workflows/check.yml@main
+#
+# 想开启更严的检查，在目标仓库根放 .ci.json：
+#   { "markdown_links": true, "require_files": ["README.md", "LICENSE"] }
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: PyYAML（用于 YAML 检查；装不上也不影响）
+        run: pip install pyyaml || true
+
+      - name: 取通用检查脚本
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/repo_ci.py" \
+            https://raw.githubusercontent.com/Joey1444/repo-ci/main/scripts/repo_ci.py
+
+      - name: 运行检查
+        run: python3 "$RUNNER_TEMP/repo_ci.py" "$GITHUB_WORKSPACE"
