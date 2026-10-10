@@ -1,0 +1,75 @@
+name: Auto-enroll repos
+
+# 扫描 Joey1444 名下的仓库，给**还没有** .github/workflows/ci.yml 的自动补上。
+# 跳过：fork、归档、以及已经有 ci.yml 的（避免覆盖别人的自建 CI）。
+#
+# ⚠️ 需要 secret `REPO_CI_TOKEN`（一个有 repo 权限的 PAT）——
+#    默认的 GITHUB_TOKEN 只能写本仓库，写不了其它仓库。
+#    没配 secret 时本工作流只出一行 warning 就退出，不会失败刷红。
+
+on:
+  schedule:
+    - cron: "37 3 * * 1" # 每周一 03:37 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  enroll:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 有没有配 REPO_CI_TOKEN
+        id: tok
+        env:
+          TOKEN: ${{ secrets.REPO_CI_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::warning::未配置 REPO_CI_TOKEN，自动接管已跳过。配置办法见 README。"
+            echo "ok=no" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=yes" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 取调用文件模板
+        if: steps.tok.outputs.ok == 'yes'
+        env:
+          GH_TOKEN: ${{ secrets.REPO_CI_TOKEN }}
+        run: |
+          gh api repos/Joey1444/repo-ci/contents/templates/ci.yml --jq '.content' \
+            | base64 -d > "$RUNNER_TEMP/ci.yml"
+          echo "模板内容："
+          cat "$RUNNER_TEMP/ci.yml"
+
+      - name: 逐个仓库补齐
+        if: steps.tok.outputs.ok == 'yes'
+        env:
+          GH_TOKEN: ${{ secrets.REPO_CI_TOKEN }}
+          CALLER_FILE: ${{ runner.temp }}/ci.yml
+        run: |
+          set -uo pipefail
+          B64=$(base64 -w0 "$CALLER_FILE")
+          added=0; skipped=0; failed=0
+
+          gh repo list Joey1444 --limit 300 \
+            --json name,isFork,isArchived,defaultBranchRef \
+            --jq '.[] | select(.isFork==false and .isArchived==false) | [.name, .defaultBranchRef.name] | @tsv' \
+          | while IFS=$'\t' read -r name branch; do
+              [ -z "$name" ] && continue
+              if gh api "repos/Joey1444/$name/contents/.github/workflows/ci.yml" >/dev/null 2>&1; then
+                echo "=  $name 已有 ci.yml，跳过"
+                continue
+              fi
+              if gh api -X PUT "repos/Joey1444/$name/contents/.github/workflows/ci.yml" \
+                   -f message="ci: 自动接入通用仓库检查（repo-ci）" \
+                   -f content="$B64" \
+                   -f branch="$branch" >/dev/null 2>&1; then
+                echo "+  $name（分支 $branch）已接入"
+              else
+                echo "!! $name 写入失败"
+              fi
+            done
+
+      - name: 汇总
+        if: steps.tok.outputs.ok == 'yes'
+        run: echo "扫描完成，见上方逐行输出。" >> "$GITHUB_STEP_SUMMARY"

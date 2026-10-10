@@ -57,6 +57,27 @@ python3 /tmp/repo_ci.py .          # 检查当前目录
 
 推之前先在本地跑，别推上去撞运气。
 
+## 自动接管（新建仓库不用手动加）
+
+`auto-enroll` 工作流每周一扫一遍名下仓库，给**还没有** `ci.yml` 的自动补上。
+跳过 fork / 归档 / 已有 `ci.yml` 的仓库（不覆盖别人自建的 CI）。
+
+### 启用它需要一步：配 PAT
+
+默认的 `GITHUB_TOKEN` **只能写本仓库**，写不了其它仓库，所以要一个 PAT：
+
+1. 建一个 fine-grained PAT，权限 **Contents: Read and write**，选中所有仓库
+   （或用 `gh auth token` 拿一个已有 `repo` 权限的 token）
+2. 存成本仓库的 secret：
+
+```bash
+gh secret set REPO_CI_TOKEN --repo Joey1444/repo-ci --body "<你的 token>"
+```
+
+3. 到 Actions 页手动跑一次 `Auto-enroll repos`
+
+**没配 secret 也不会报错**——工作流只出一行 warning 就退出。
+
 ## License
 
 MIT
